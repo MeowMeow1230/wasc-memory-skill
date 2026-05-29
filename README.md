@@ -67,7 +67,7 @@ Two memory types coexist in one store:
 │   └── architecture.md   # Architecture & design decisions
 ├── src/
 │   ├── models.py         # Memory data model
-│   ├── store.py          # Mem0 vector store wrapper
+│   ├── store.py          # In-memory keyword-search store
 │   ├── extractor.py      # LLM-driven memory classifier
 │   ├── arbitrator.py     # Scope-graded conflict resolver
 │   ├── injector.py       # Memory injection into prompts
@@ -77,8 +77,9 @@ Two memory types coexist in one store:
 ├── tests/
 │   └── test_harness.py   # 8-step automated test with judge commentary
 ├── scripts/
-│   ├── demo.py           # Main 8-step demo
-│   └── decay_demo.py     # Auto-decay feature demo
+│   ├── real_demo.py    # Natural usage scenario demo
+│   ├── demo.py         # 8-step technical demo
+│   └── decay_demo.py   # Auto-decay feature demo
 ├── skill/
 │   └── SKILL.md          # WASC submission skill description
 ├── evals/
@@ -90,25 +91,37 @@ Two memory types coexist in one store:
 
 - Python 3.12+
 - DeepSeek API key (or any Anthropic-compatible endpoint)
-- Zero external services — no GPU, no Docker, no Ollama
+- Zero external services — no GPU, no Docker, no Ollama, no database
 
 ## Quick Start
 
 ```bash
-# 1. Install
-git clone <repo-url>
+# 1. Clone & install
+git clone https://github.com/MeowMeow1230/wasc-memory-skill.git
 cd wasc-memory-skill
 pip install -e .
 
-# 2. Configure
+# 2. Configure API key
 cp .env.example .env
-# Edit .env: add your ANTHROPIC_AUTH_TOKEN
+# Edit .env with your key:
+#   ANTHROPIC_AUTH_TOKEN=sk-xxxxx
+#   ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+#   ANTHROPIC_MODEL=deepseek-v4-pro
 
-# 3. Run
-python3 scripts/demo.py          # 8-step memory test
-python3 scripts/decay_demo.py    # Auto-decay feature
-python3 -m tests.test_harness    # Automated scoring (97/100)
+# 3. Run demos
+python3 scripts/real_demo.py     # Natural usage scenario (2 min)
+python3 scripts/demo.py          # 8-step technical test (5 min)
+python3 scripts/decay_demo.py    # Auto-decay feature (3 min)
+
+# 4. Run automated scoring
+python3 -m tests.test_harness    # 97/100 with judge commentary
 ```
+
+## Usage as a Skill
+
+This is a **WASC AI Skill** — an AI agent reads `skill/SKILL.md` and follows the memory management contract. No server, no MCP, no installation needed for the skill itself.
+
+The `src/` implementation proves the contract works. The `scripts/` are demo recordings for submission.
 
 ## Evaluation Results
 
