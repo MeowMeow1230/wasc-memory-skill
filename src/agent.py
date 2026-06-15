@@ -1,4 +1,4 @@
-"""Agent orchestrator: five-stage pipeline with learning/application phases and learning pulse."""
+"""Agent orchestrator: five-stage pipeline with implicit confirmation and project-scoped preferences."""
 import os
 import re
 from typing import Optional
@@ -25,40 +25,58 @@ class Agent:
         self._pulse_session_start_sent: bool = False
         self._pulse_last_upgrade_count: int = 0
         self._pulse_last_milestone: int = 0
+        # Implicit confirmation: per-project tracking
+        self._last_correction: dict[str, str] = {}   # project -> signal_id
+        self._last_correction_norm: dict[str, str] = {}  # project -> normalized_topic
+
+    # ── Public API ──────────────────────────────────────────────
 
     def process_dialog(self, text: str, context: dict) -> dict:
+        """Process a user dialog message."""
+        project = context.get("project", "default")
         sig = self.capture.capture_dialog(text, context)
-        if sig is None:
-            return {"phase": "no_signal"}
 
+        result = {
+            "phase": "no_signal",
+            "signal_ids": [],
+            "need_confirmation": False,
+            "confirmation_message": None,
+            "implicitly_confirmed": False,
+            "injected_memories": [],
+        }
+
+        # ── Step 0: Implicit confirmation ──
+        # User didn't re-correct next turn → AI understood → accelerate learning
+        is_correction_now = sig and sig.dialog_type == "correction"
+        was_awaiting = project in self._last_correction
+
+        if was_awaiting and not is_correction_now:
+            self._apply_implicit_confirmation(project)
+            result["implicitly_confirmed"] = True
+
+        if sig is None:
+            return result
+
+        # ── Step 1: Dedup ──
         existing = self._find_similar_signal(sig)
         if existing:
             existing.trigger_count += 1
+            existing.context = {**existing.context, **context}
             sig = existing
         else:
             self._signal_pool.append(sig)
 
-        result = {
-            "phase": "observed",
-            "signal_ids": [sig.id],
-            "need_confirmation": False,
-            "confirmation_message": None,
-            "injected_memories": [],
-        }
+        result["phase"] = "observed"
+        result["signal_ids"] = [sig.id]
 
+        # Track correction for implicit confirmation
+        if sig.dialog_type == "correction":
+            self._last_correction[project] = sig.id
+            self._last_correction_norm[project] = self._normalize_signal(sig.content)
+
+        # ── Step 2: LLM classification ──
         if self.classifier.should_trigger_llm(sig):
-            related = self._get_related_signals(sig)
-            active_mems = self.store.list_memories(state="active")
-            memory = self.classifier.classify(sig, related, active_mems)
-            if memory:
-                memory.confidence = self.classifier.get_start_confidence(red_line=sig.red_line)
-                self.store.save_memory(memory)
-                result["phase"] = "classified"
-                result["memory_id"] = memory.id
-                if memory.confidence >= MATURE_THRESHOLD and memory.confidence < RULE_MIN:
-                    self._pending_confirmations[memory.id] = memory
-                    result["need_confirmation"] = True
-                    result["confirmation_message"] = self._build_confirmation_message(memory)
+            result = self._run_classifier(sig, project, result)
 
         return result
 
@@ -67,10 +85,10 @@ class Agent:
         if not memory:
             return {"error": "memory not found"}
 
-        response_lower = response.strip().lower()
+        r = response.strip().lower()
 
-        if any(word in response_lower for word in ["好", "可以", "嗯", "對", "对", "yes", "ok", "y"]):
-            if any(limit_word in response for limit_word in ["專案", "项目", "project", "這個", "这个"]):
+        if any(w in r for w in ["好", "可以", "嗯", "對", "对", "yes", "ok", "y"]):
+            if any(w in response for w in ["專案", "项目", "project", "這個", "这个"]):
                 memory.scope = "repo"
                 memory.scope_value = self._extract_scope_from_response(response)
             memory.confidence = RULE_MIN
@@ -78,7 +96,7 @@ class Agent:
             self._pending_confirmations.pop(memory_id, None)
             return {"action": "upgraded_to_rule", "memory_id": memory_id, "confidence": memory.confidence}
 
-        if any(word in response_lower for word in ["不要", "不行", "不對", "不对", "no", "n"]):
+        if any(w in r for w in ["不要", "不行", "不對", "不对", "no", "n"]):
             memory.confidence = 10
             self.store.save_memory(memory)
             self._pending_confirmations.pop(memory_id, None)
@@ -155,17 +173,120 @@ class Agent:
 
         return None
 
+    # ── Implicit Confirmation ───────────────────────────────────
+
+    def _apply_implicit_confirmation(self, project: str):
+        """User didn't re-correct → accelerate both signals AND memories."""
+        signal_id = self._last_correction.pop(project, None)
+        norm_topic = self._last_correction_norm.pop(project, None)
+        if not signal_id or not norm_topic:
+            return
+
+        # 1. Accelerate matching raw signals → reach LLM threshold faster
+        sig_to_classify = None
+        for sig in self._signal_pool:
+            sig_norm = self._normalize_signal(sig.content)
+            if self._word_overlap(sig_norm, norm_topic) >= 0.4:
+                sig.trigger_count = max(sig.trigger_count, 3)  # fast-track past threshold
+                sig.red_line = True
+                sig_to_classify = sig
+                break  # classify one at a time
+
+        # 2. Directly classify the confirmed signal (user silence = validation)
+        if sig_to_classify:
+            self._run_classifier(sig_to_classify, project, {})
+
+        # 3. Boost matching memories
+        for mem in self.store.list_memories(state="active"):
+            if mem.scope_value and mem.scope_value != project:
+                continue
+            if mem.confidence >= RULE_MIN:
+                continue
+            if self._topic_relates(mem.rule_content, norm_topic):
+                boost = 15
+                mem.confidence = min(RULE_MIN - 1, mem.confidence + boost)
+                if mem.confidence >= 50:
+                    mem.confidence = max(mem.confidence, 55)
+                self.store.save_memory(mem)
+
+    # ── LLM Classification ──────────────────────────────────────
+
+    def _run_classifier(self, sig: Signal, project: str, result: dict) -> dict:
+        """Run the LLM classifier on a signal and update result."""
+        related = self._get_related_signals(sig, project)
+        active_mems = self.store.list_memories(state="active")
+        memory = self.classifier.classify(sig, related, active_mems)
+        if memory:
+            if not memory.scope_value:
+                memory.scope_value = project
+                memory.scope = "repo"
+            memory.confidence = self.classifier.get_start_confidence(red_line=sig.red_line)
+            self.store.save_memory(memory)
+            result["phase"] = "classified"
+            result["memory_id"] = memory.id
+            if MATURE_THRESHOLD <= memory.confidence < RULE_MIN:
+                self._pending_confirmations[memory.id] = memory
+                result["need_confirmation"] = True
+                result["confirmation_message"] = self._build_confirmation_message(memory)
+        return result
+
+    # ── Normalization & Dedup (deterministic, zero LLM) ─────────
+
+    def _normalize_signal(self, text: str) -> str:
+        """Extract core instruction from correction for dedup grouping. Regex only."""
+        t = text.strip()
+        t = re.sub(r'\s+', ' ', t).lower()
+        t = re.sub(r'^(我说過|我說過|操[，,]?\s*|你又忘了\s*|講了多少次\s*|說了多少次\s*)', '', t)
+        t = re.sub(r'[！!。，,]+$', '', t)
+        # Strip truly generic verbs (only 用/使用) between negation and target
+        t = re.sub(r'(不要|别|別|不应该|不應該|绝对不要|絕對不要|永遠不要|永远不要|不准|严禁|嚴禁)\s*(?:用|使用)\s*', r'\1', t)
+        # Extract negation phrases
+        negation_kws = r'(?:不要|别|別|不应该|不應該|绝对不要|絕對不要|永遠不要|永远不要|不准|严禁|嚴禁|不能)'
+        negations = re.findall(negation_kws + r'[^！!。，,；;、\n' + "'" + r'"]+', t)
+        if negations:
+            cleaned = [re.sub(r'\s+', '', n) for n in negations]
+            return ' '.join(sorted(set(cleaned)))
+        # Fallback
+        filler = {'你', '我', '他', '的', '了', '在', '是', '有', '和', '就', '都', '也', '吧', '嗎', '呢', '啊', '哦', '喔', '再', '又', '一直', '每次', '總是', '老是', '不要', '別'}
+        tokens = [w for w in t.split() if w not in filler]
+        return ' '.join(tokens[:6])
+
     def _find_similar_signal(self, sig: Signal) -> Optional[Signal]:
+        norm = self._normalize_signal(sig.content)
         for s in self._signal_pool:
-            if s.content == sig.content and s.source == sig.source:
+            if self._normalize_signal(s.content) == norm and s.source == sig.source:
                 return s
         return None
 
-    def _get_related_signals(self, sig: Signal) -> list[Signal]:
-        return [s for s in self._signal_pool if s.id != sig.id and s.content == sig.content]
+    def _get_related_signals(self, sig: Signal, project: str = "") -> list[Signal]:
+        norm = self._normalize_signal(sig.content)
+        related = []
+        for s in self._signal_pool:
+            if s.id == sig.id:
+                continue
+            s_norm = self._normalize_signal(s.content)
+            if s_norm == norm:
+                related.append(s)
+            elif s.context.get("project") == project:
+                overlap = self._word_overlap(s_norm, norm)
+                if overlap >= 0.5:
+                    related.append(s)
+        return related
+
+    # ── Helpers ──────────────────────────────────────────────────
 
     def _get_signals_by_content(self, content: str) -> list[Signal]:
         return [s for s in self._signal_pool if content in s.content]
+
+    def _topic_relates(self, rule_content: str, norm_topic: str) -> bool:
+        return self._word_overlap(rule_content.lower(), norm_topic.lower()) >= 0.3
+
+    def _word_overlap(self, a: str, b: str) -> float:
+        wa = set(a.split())
+        wb = set(b.split())
+        if not wa or not wb:
+            return 0.0
+        return len(wa & wb) / max(len(wa), len(wb))
 
     def _build_confirmation_message(self, memory: Memory) -> str:
         return f"PS: 我注意到 {memory.rule_content}，以後 {memory.condition or '這樣做'} 好嗎？"
