@@ -106,7 +106,10 @@ Classify this signal. If it reveals a durable preference or pattern, extract it.
             system=CLASSIFIER_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],
         )
-        result_text = response.content[0].text
+        result_text = "".join(
+            block.text for block in response.content
+            if getattr(block, 'type', None) == 'text'
+        )
         result = self._parse_json(result_text)
         source_ids = [s.id for s in related_signals] + [signal.id]
         return self.parse_result(result, source_ids)
