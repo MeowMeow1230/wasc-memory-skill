@@ -17,6 +17,7 @@ class Agent:
         self.capture = SignalCapture()
         self.classifier = Classifier()
         self._signal_pool: list[Signal] = []
+        self._dialog_count: int = 0  # Counter for periodic classification reminder
         self._pulse_session_start_sent: bool = False
         self._pulse_last_upgrade_count: int = 0
         self._pulse_last_milestone: int = 0
@@ -50,6 +51,8 @@ class Agent:
 
     def _add_to_pool(self, sig) -> dict:
         """Internal: add signal to pool with exact-match dedup."""
+        self._dialog_count += 1
+
         existing = self._find_exact_match(sig)
         if existing:
             existing.trigger_count += 1
@@ -63,6 +66,14 @@ class Agent:
             "trigger_count": sig.trigger_count,
             "red_line": sig.red_line,
         }
+
+    def should_classify_now(self) -> bool:
+        """Tell Claude Code when to check the signal pool.
+
+        Triggers when: pool >= 3 signals OR 5+ messages since last check.
+        Claude reads this before each response to know if it's time to classify.
+        """
+        return len(self._signal_pool) >= 3 or (self._dialog_count > 0 and self._dialog_count % 5 == 0)
 
     def get_pending_signals(self, min_count: int = 1) -> list[dict]:
         """Return signals needing classification. Called by Claude Code.

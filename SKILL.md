@@ -34,7 +34,7 @@ This bypasses regex and directly adds to the pool.
 
 ### 2. Signal Classification
 
-Every 5 user messages (or when signal pool reaches 3 items):
+Before each response, check `agent.should_classify_now()`. When it returns True (pool >= 3 signals, or 5+ messages accumulated):
 
 1. Call `agent.get_pending_signals()` to read unclassified signals
 2. For each signal, classify its **dialog_type**:
