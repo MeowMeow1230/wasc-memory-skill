@@ -24,13 +24,32 @@ class Agent:
     # ── Public API ──────────────────────────────────────────────
 
     def process_dialog(self, text: str, context: dict) -> dict:
-        """Capture signals from user dialog. Classification is done by Claude Code."""
+        """Capture signals from user dialog (Track A: regex). Classification is done by Claude Code."""
         sig = self.capture.capture_dialog(text, context)
 
         if sig is None:
             return {"phase": "no_signal"}
 
-        # Simple dedup: exact match (Claude groups semantically later)
+        return self._add_to_pool(sig)
+
+    def add_signal(self, text: str, dialog_type: str, context: dict, red_line: bool = False) -> dict:
+        """Track B: Claude Code manually adds a signal that regex missed.
+
+        Use this when you observe an implied correction, weak feedback,
+        or any useful signal that regex didn't catch.
+        """
+        from src.models import Signal
+        sig = Signal(
+            source="dialog",
+            dialog_type=dialog_type,
+            content=text,
+            context=context,
+            red_line=red_line,
+        )
+        return self._add_to_pool(sig)
+
+    def _add_to_pool(self, sig) -> dict:
+        """Internal: add signal to pool with exact-match dedup."""
         existing = self._find_exact_match(sig)
         if existing:
             existing.trigger_count += 1
@@ -68,19 +87,32 @@ class Agent:
 
     def classify_and_save(self, signal_id: str, classification: dict) -> Optional[Memory]:
         """Save a Claude-classified memory. Called after Claude processes pending signals."""
+        # ── Validation ──
+        rule_content = (classification.get("rule_content", "") or "").strip()
+        if not rule_content:
+            return None  # Empty rule — reject
+
+        valid_types = {"preference", "rule", "workflow", "method"}
+        mem_type = classification.get("type", "preference")
+        if mem_type not in valid_types:
+            mem_type = "preference"  # Fallback
+
+        confidence = classification.get("confidence", MATURE_THRESHOLD)
+        confidence = max(0, min(100, confidence))  # Clamp 0-100
+
+        # ── Build memory ──
         source_ids = [signal_id]
-        # Also include related signal IDs if provided
         if "related_signal_ids" in classification:
             source_ids.extend(classification["related_signal_ids"])
 
         memory = Memory(
-            rule_content=classification.get("rule_content", ""),
-            type=classification.get("type", "preference"),
+            rule_content=rule_content,
+            type=mem_type,
             scope=classification.get("scope", "global"),
             scope_value=classification.get("scope_value", ""),
             condition=classification.get("condition", ""),
             principle=classification.get("principle", ""),
-            confidence=classification.get("confidence", MATURE_THRESHOLD),
+            confidence=confidence,
             state="active",
             source_signals=source_ids,
         )
