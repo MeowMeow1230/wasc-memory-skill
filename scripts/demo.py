@@ -106,6 +106,13 @@ def calculateTotalPrice(items, tax):
             agent.handle_confirmation_response(m.id, "好")
     ok("用户确认 → 偏好升级到 RULE (conf=80+)，从此沉默生效")
 
+    # Rule upgrade pulse — skip session_start, show rule upgrade
+    agent._pulse_session_start_sent = True
+    pulse = agent.get_pulse()
+    if pulse:
+        print(f"  {C['cyan']}🫀 {pulse['message']}{C['reset']}")
+    ok("学习脉搏：只在规则成熟时轻量提示，不打扰工作")
+
     print(f"\n{C['bold']}新任务：写 TypeScript 工具函数（泛化测试）{C['reset']}")
     injected = agent.get_jit_memories(project="demo", directory="src", file_extension=".ts")
     print(f"  JIT 注入：{len(injected)} 条相关记忆 →")
