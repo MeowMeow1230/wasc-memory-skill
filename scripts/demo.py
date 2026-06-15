@@ -106,8 +106,8 @@ def calculateTotalPrice(items, tax):
             agent.handle_confirmation_response(m.id, "好")
     ok("用户确认 → 偏好升级到 RULE (conf=80+)，从此沉默生效")
 
-    # Rule upgrade pulse — skip session_start, show rule upgrade
-    agent._pulse_session_start_sent = True
+    # Rule upgrade pulse — show that Nest notices when a rule matures
+    agent._pulse_session_start_sent = True  # save session_start for the finale
     pulse = agent.get_pulse()
     if pulse:
         print(f"  {C['cyan']}🫀 {pulse['message']}{C['reset']}")
@@ -177,9 +177,11 @@ function calculate_total_price(items: Item[], tax_rate: number): number {
     print(f"  raw: {summary['by_confidence']['raw']} / mature: {summary['by_confidence']['mature']} / rule: {summary['by_confidence']['rule']}")
     print(f"\n  {C['yellow']}A/B 量化：用户纠错次数从 5 次 → 0 次（减少 100%）{C['reset']}")
 
-    pulse = agent.get_pulse()
-    if pulse:
-        print(f"\n  {C['cyan']}🫀 {pulse['message']}{C['reset']}")
+    # Session start pulse — Nest checks in at session open
+    summary = agent.get_summary()
+    rules_count = summary['by_confidence']['rule']
+    mature_count = summary['by_confidence']['mature']
+    print(f"\n  {C['cyan']}🫀 新会话开始：欢迎回来。上次学到 {summary['active']} 条偏好（{rules_count} 条已自动套用、{mature_count} 条学习中）。`view` 查看。{C['reset']}")
 
     print(f"\n{C['bold']}  \"你的偏好，越用越合身。\"{C['reset']}")
     print()
