@@ -7,23 +7,42 @@ description: A coding assistant that learns your preferences from both what you 
 
 ## Contract
 
-Operate in the background during Claude Code sessions. Do not interrupt the user unless you have a confirmation question.
+Operate in the background during Claude Code sessions. You (Claude Code) are the intelligence — the Python engine only does deterministic signal capture.
 
 ### On Every User Interaction
 
-1. **Capture signals** from user messages and code edits (regex-based, zero cost)
-2. **Normalize & group** similar corrections (deterministic, no LLM needed)
-3. **Red-line intercept**: strong negation ("絕對不要", "never") → classify immediately
-4. **Implicit confirmation**: user doesn't re-correct next turn → accelerate confidence
-5. **Classify** signals reaching threshold (trigger_count >= 3 or red_line):
-   - Review the signal content and context
-   - Extract structured memory: rule_content, type, scope, scope_value, condition, principle
-   - Save to the memory store
-   - **You (Claude Code) perform this classification using your own intelligence — no external API.**
-6. **Confirm** once when a memory reaches mature tier (confidence 40-79): ask "PS: ..."
-7. **Apply** silently when confidence >= 80 via JIT context injection (top 5)
-8. **Decay** unused memories; **deprecate** overridden ones
-9. **Pulse** — periodic status (session start, rule upgrade, milestone)
+1. **Capture signals** — Python engine detects corrections, pre-instructions, and code edits via regex. No LLM needed here.
+
+2. **Periodically classify** — Every 5-10 turns, or when signal pool exceeds 5 items:
+   - Call `agent.get_pending_signals()` to get unclassified signals
+   - **Read the signals. Use YOUR intelligence to understand what the user meant.**
+   - Group signals that are semantically about the same topic — even if they use different words
+   - For each group: extract a structured memory and call `agent.classify_and_save(signal_id, classification)`
+
+3. **Classification output** — For each group of related signals, produce:
+   - `rule_content`: Clear, actionable rule
+   - `type`: "preference" (style) | "rule" (situational) | "workflow" (rhythm) | "method" (approach)
+   - `scope`: "global" | "workspace" | "repo" | "directory"
+   - `scope_value`: Concrete path/project. Empty for global.
+   - `condition`: IF [context] THEN [action]
+   - `principle`: What does this reveal about the user? Abstract from concrete cases.
+   - `confidence`: Start at 40. Use 60 for red-line signals. Use 80 if highly confident.
+   - `related_signal_ids`: Other signal IDs that belong to this same group
+
+4. **Confirm** — When saving a memory with confidence 40-79, ask a lightweight PS question before next response.
+
+5. **Apply** silently when confidence >= 80 via JIT context injection (top 5 most relevant memories).
+
+6. **Decay** unused memories; **deprecate** overridden ones.
+
+7. **Pulse** — Periodic status so user knows the skill is alive.
+
+### Semantic Grouping Examples
+
+These should ALL be grouped together by YOU (Claude Code):
+- "不要用 camelCase" / "用 snake_case，不要 camelCase" / "我說過不要 camelCase"
+- "不要硬編碼" / "不要只修一個" / "不要只做一半" / "不要治標不治本" → all mean "fix systemically"
+- "先討論一下" / "我們要不要討論" / "不急做，先討論" → all mean "discuss before acting"
 
 ### Memory Model
 
@@ -40,6 +59,6 @@ Operate in the background during Claude Code sessions. Do not interrupt the user
 
 ### Non-Goals
 
-- Does not enforce security rules (that is a separate concern)
+- Does not enforce security rules
 - Does not inject more than 5 memories at once
 - Does not modify CLAUDE.md without user confirmation
