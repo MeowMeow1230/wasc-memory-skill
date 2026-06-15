@@ -174,19 +174,22 @@ class Agent:
         }
 
     def get_pulse(self) -> Optional[dict]:
+        """Return the most important pending pulse. Updates only the counter that fires."""
         all_mems = self.store.list_memories()
         active = [m for m in all_mems if m.state == "active"]
         rules = [m for m in active if m.confidence >= RULE_MIN]
         matures = [m for m in active if MATURE_THRESHOLD <= m.confidence < RULE_MIN]
 
+        # Session start (always fires first if not sent)
         if not self._pulse_session_start_sent:
             self._pulse_session_start_sent = True
             if active:
                 return {
                     "type": "session_start",
-                    "message": f"歡迎回來。上次學到 {len(active)} 條偏好（{len(rules)} 條已自動套用、{len(matures)} 條學習中）。`view` 查看。"
+                    "message": f"歡迎回來。上次學到 {len(active)} 條偏好（{len(rules)} 條已自動套用、{len(matures)} 條學習中）。`view` 查看。",
                 }
 
+        # Rule upgrade (fires once per new rule)
         if len(rules) > self._pulse_last_upgrade_count:
             newest = rules[-1]
             self._pulse_last_upgrade_count = len(rules)
@@ -196,6 +199,7 @@ class Agent:
                 "memory_id": newest.id,
             }
 
+        # Milestone (fires every 5 active memories)
         current_milestone = len(active) // 5
         if current_milestone > self._pulse_last_milestone:
             self._pulse_last_milestone = current_milestone
