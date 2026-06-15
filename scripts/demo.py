@@ -150,6 +150,14 @@ function calculate_total_price(items: Item[], tax_rate: number): number {
     still = any("snake_case" in m.rule_content.lower() for m in store.list_memories(state="active"))
     ok(f"记忆数 {before}→{after} / 不再使用删除的规则：{not still}")
 
+    # ── CLI Demo ──
+    print(f"\n{C['bold']}用户控制演示（CLI 命令）：{C['reset']}")
+    info("python3 scripts/view_memory.py  ← 查看全部记忆")
+    info("python3 scripts/edit_memory.py <id> '<json>'  ← 编辑记忆")
+    info("python3 scripts/delete_memory.py <id>  ← 删除记忆")
+    info("python3 scripts/reset_memory.py  ← 清空全部记忆")
+    ok("Claude Code 中可直接用 /memory view | reset | edit | delete")
+
     # ════════════════════════════════════════════════════════════
     # Summary
     # ════════════════════════════════════════════════════════════
