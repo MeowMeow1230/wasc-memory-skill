@@ -1,63 +1,39 @@
 ---
-name: self-growing-memory-skill
-description: A coding assistant with structured memory that extracts preferences, rules, and learning needs from conversation, applies them proactively across contexts, and auto-decays guidance as the user grows.
+name: self-growing-memory-v2
+description: A coding assistant that learns your preferences from both what you say and what you edit — then silently applies them, reducing repetition over time.
 ---
 
-# Self-Growing Memory Skill
+# Self-Growing Memory Skill v2
 
 ## Contract
 
-Accept user messages as normal conversation. On every interaction:
+Operate in the background during Claude Code sessions. Do not interrupt the user unless you have a confirmation question.
 
-1. Inject relevant active memories into the system prompt
-2. After responding, classify the user's message as feedback or temporary task
-3. If feedback: extract structured memories (preference / rule / method)
-4. Run scope-graded conflict arbitration on new memories
-5. Scan auto-decay memories: reinforce matching topics, decay unmatched ones
+### On Every User Interaction
 
-Keep memory management transparent. Expose `reset`, `view`, `edit`, `delete` as first-class operations.
+1. **Capture signals** from user messages (corrections, pre-instructions, feedback) and code edits (style changes, structure rewrites, full deletes)
+2. **Red-line intercept**: if the user uses strong negation ("絕對不要", "never", "stop doing") or deletes entire AI outputs twice consecutively — classify immediately
+3. **Classify** when trigger_count >= 3 or red_line is true — extract structured memory with type, scope, scope_value, condition, and abstract principle
+4. **Confirm** once when a memory reaches mature tier (confidence 40-79): ask a lightweight PS question
+5. **Apply** silently when confidence >= 80 via JIT context injection (top 5 most relevant memories)
+6. **Decay** unused memories over time; **deprecate** overridden memories
+7. **Pulse** — periodic lightweight status (session start, rule upgrade, milestone) so you know the skill is alive
 
-## Memory Model
+### Memory Model
 
-Every memory has:
+| Field | Description |
+|-------|-------------|
+| `rule_content` | The actionable rule in plain language |
+| `type` | preference / rule / workflow / method |
+| `scope` | global / workspace / repo / directory |
+| `scope_value` | Concrete path or project name |
+| `condition` | IF [context] THEN [action] |
+| `principle` | Abstract principle behind the rule |
+| `confidence` | 0-100 (raw 0-39, mature 40-79, rule 80-100) |
+| `source_signals` | Signal IDs tracing why this was learned |
 
-| Field | Values | Description |
-|-------|--------|-------------|
-| type | preference / rule / method / temporary | Memory category |
-| scope | global / project / file / temporary | Applicability range |
-| priority | 1-10 | Resolution weight for conflicts |
-| status | active / deprecated / archived | Lifecycle state |
-| auto_decay | bool | Whether decay tracking is enabled |
-| decay_score | 0-100 | 100=just reinforced, 0=auto-deprecated |
-| decay_topic | string | Topic key for per-topic independent decay |
+### Non-Goals
 
-## Conflict Resolution
-
-Scope-graded: global > project > file > temporary.
-
-- New memory with narrower scope → keep both (exception doesn't kill preference)
-- New memory with equal/wider scope + higher priority → replace old
-- Temporary memory with `expires_at` → auto-archived after expiry
-
-## Decay Mechanism
-
-Triggered only for memories with `auto_decay=true` (typically method-type memories about user learning needs).
-
-- Per-topic matching: only reinforce the specific topic the user is asking about
-- Reinforcement: `decay_score = 100` when user asks "why" / "explain" on matching topic
-- Decay: `decay_score -= 20` per session where topic is not triggered
-- Auto-deprecation: when `decay_score` reaches 0
-
-This means: if a user keeps asking about React but stops asking about TypeScript, only the TypeScript memory decays. Non-decay memories (preference/rule) are never affected.
-
-## Non-Goals
-
-- Does not replace general conversation memory or chat history
-- Does not persist memories across different users (single-user model)
-- Does not handle multi-modal input
-
-## See Also
-
-- [Architecture docs](./docs/architecture.md)
-- [Setup guide](./SETUP.md)
-- [Test harness](./tests/test_harness.py)
+- Does not enforce security rules (that is a separate concern)
+- Does not inject more than 5 memories at once
+- Does not modify CLAUDE.md without user confirmation
