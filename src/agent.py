@@ -93,10 +93,16 @@ class MemoryAgent:
 
             # 6. 對每條新記憶做衝突仲裁
             for new_mem in new_memories:
-                # method 型 + 用戶在學 → 啟用自動衰退
-                if new_mem.type == MemoryType.METHOD and user_is_learning:
+                # 解釋需求相關 → 強制轉為 method + 自動衰退
+                explain_kw = ["解釋", "步驟", "新手", "學習", "初學", "explain", "step", "beginner",
+                             "詳細", "detail", "understand", "理解", "說明"]
+                is_explain = any(kw in new_mem.content.lower() for kw in explain_kw)
+                if is_explain or (new_mem.type == MemoryType.METHOD and user_is_learning):
+                    new_mem.type = MemoryType.METHOD
                     new_mem.auto_decay = True
                     new_mem.decay_score = 100
+                    if not new_mem.decay_topic:
+                        new_mem.decay_topic = self._guess_topic(user_message)
 
                 to_keep, to_deprecate = self.arbitrator.resolve(
                     new_mem, self.memories
@@ -153,34 +159,36 @@ class MemoryAgent:
             if not mem.auto_decay or mem.status != MemoryStatus.ACTIVE:
                 continue
 
-            # 精準匹配：只有該主題的衰退記憶才受此訊息影響
+            # 主題匹配：該訊息是否與此記憶的主題相關
             topic_match = (
-                not mem.decay_topic or  # 無主題 → 通用，全部影響
+                not mem.decay_topic or
                 mem.decay_topic.lower() in user_message.lower() or
                 any(kw in user_message.lower() for kw in mem.decay_topic.lower().split(","))
             )
 
             if user_is_learning and topic_match:
+                # 用戶在學且主題相關 → 強化
                 mem.reinforce()
-            elif not topic_match:
-                # 不相關主題 → 跳過，不扣分也不加分
+            elif user_is_learning and not topic_match:
+                # 用戶在學別的主題 → 不影響這條
                 continue
             else:
+                # 用戶沒在學 → 所有衰退記憶都扣分
                 mem.decay(amount=20)
 
     def _guess_topic(self, msg: str) -> str:
-        """從用戶訊息中猜測學習主題"""
-        topics = {
-            "React": ["react", "component", "jsx", "hook", "useState", "useEffect", "props", "state"],
-            "TypeScript": ["typescript", "type", "interface", "generic", "strict"],
-            "Testing": ["test", "vitest", "jest", "mock", "assert"],
-            "CSS": ["css", "style", "tailwind", "layout", "flex"],
-            "Python": ["python", "django", "flask", "pip"],
-        }
-        msg_lower = msg.lower()
-        for topic, keywords in topics.items():
-            if any(kw in msg_lower for kw in keywords):
-                return topic
+        """從用戶訊息中動態提取學習主題 — 不限類別，自由擴展"""
+        # 提取大寫開頭的技術名詞（React, TypeScript, Python, Docker...）
+        import re
+        # 匹配英文技術名詞：大寫開頭或全大寫縮寫
+        tech_words = set(re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)*\b|\b[A-Z]{2,}\b', msg))
+        if tech_words:
+            return ", ".join(sorted(tech_words)[:3])
+        # fallback: 提取第一個 "為什麼/怎麼" 後面 3 個詞的關鍵字
+        m = re.search(r'(?:為什麼|怎麼|如何|why|how to|explain)\s*(.+?)(?:[?？]|$)', msg.lower())
+        if m:
+            words = m.group(1).strip().split()[:3]
+            return " ".join(words)
         return "General"
 
     def _build_system_prompt(self, memory_block: str) -> str:
