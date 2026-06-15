@@ -1,4 +1,4 @@
-# Self-Growing Memory Skill v2 — 自成長記憶技能
+# Nest — 你的偏好，越用越合身
 
 **WASC 六月挑戰：自成長 · 越用越懂你**
 

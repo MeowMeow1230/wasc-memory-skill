@@ -1,13 +1,13 @@
 ---
-name: self-growing-memory-v2
-description: A coding assistant that learns from both what you say and what you edit — then silently applies preferences, reducing repetition over time. Claude Code is the intelligence; Python is the notebook and regex engine.
+name: nest
+description: Nest — your preferences, grown to fit. A background skill that learns from corrections and code edits, then silently applies them. Claude Code is the intelligence; Python is the notebook.
 ---
 
-# Self-Growing Memory Skill v2
+# Nest
 
 ## One-Liner
 
-A background skill that observes your corrections and code edits, learns your preferences, and silently applies them — so you repeat yourself less with every session.
+你的偏好，越用越合身。A background skill that observes, learns, and silently applies — so you repeat yourself less with every session.
 
 ## How It Works
 

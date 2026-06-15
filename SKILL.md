@@ -1,9 +1,9 @@
 ---
-name: self-growing-memory-v2
-description: A coding assistant that learns your preferences from both what you say and what you edit — then silently applies them, reducing repetition over time.
+name: nest
+description: Nest — your preferences, grown to fit. Learns from what you say and edit, then silently applies. No API. No management. Just less repetition.
 ---
 
-# Self-Growing Memory Skill v2
+# Nest —（自成長記憶技能）
 
 ## Contract
 

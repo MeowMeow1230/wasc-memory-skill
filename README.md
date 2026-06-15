@@ -1,4 +1,6 @@
-# Self-Growing Memory Skill v2
+# Nest
+
+你的偏好，越用越合身。
 
 A Claude Code Skill that learns your coding preferences from both dialog corrections and code-diff behavior, then silently applies them — reducing repetition over time.
 
@@ -6,7 +8,7 @@ A Claude Code Skill that learns your coding preferences from both dialog correct
 
 ## Core Philosophy
 
-> The more you use it, the less you need to repeat yourself.
+> The more you use it, the more it fits.
 
 Python does the mechanical work (signal capture, storage, JIT injection). Claude Code does the intelligent work (semantic grouping, classification, confidence judgment).
 
