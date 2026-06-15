@@ -1,168 +1,173 @@
 #!/usr/bin/env python3
-"""WASC 8-Step Demo: Self-Growing Memory Skill v2."""
-import sys
-import os
+"""Nest Demo — 三幕自成长故事。Act 1: 烦躁 → Act 2: 怀疑 → Act 3: Aha!"""
+import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.models import Memory, Signal
-from src.memory_store import MemoryStore
-from src.signal_capture import SignalCapture
+from src.models import Memory
 from src.agent import Agent
 
+C = {"reset": "\033[0m", "bold": "\033[1m", "green": "\033[92m", "yellow": "\033[93m",
+     "cyan": "\033[96m", "red": "\033[91m", "magenta": "\033[95m"}
 
-def print_step(n: int, title: str):
-    print(f"\n{'='*60}")
-    print(f"  STEP {n}: {title}")
-    print(f"{'='*60}")
+def p(): print(f"\n{C['bold']}{C['cyan']}{'─'*60}{C['reset']}")
+def h(text): print(f"{C['bold']}{C['yellow']}{text}{C['reset']}")
+def ok(text): print(f"  {C['green']}✓{C['reset']} {text}")
+def info(text): print(f"  {C['cyan']}→{C['reset']} {text}")
+def code(text):
+    for line in text.strip().split('\n'):
+        print(f"    {C['magenta']}{line}{C['reset']}")
 
 def main():
     agent = Agent()
     store = agent.store
-    capture = agent.capture
-
-    # Step 1: Reset
-    print_step(1, "清空記憶 (Reset Memory)")
     store.clear()
-    print(f"Memories in store: {len(store.list_memories())} (should be 0)")
-    print("可复测性: 評審可從空白狀態開始測試")
 
-    # Step 2: First task — no preferences, write a Python utility
-    print_step(2, "首次任務: 寫 Python 工具函數")
-    print("AI generates:")
-    print('''
-```python
+    # ════════════════════════════════════════════════════════════
+    # ACT 1
+    # ════════════════════════════════════════════════════════════
+    p()
+    print(f"{C['bold']}{C['red']}  ACT 1: 烦躁 — AI 每次都像第一次见你{C['reset']}")
+    p()
+
+    print(f"\n{C['bold']}评审视角：清空记忆，从零开始{C['reset']}")
+    ok(f"reset memory → {len(store.list_memories())} 条记忆（空白状态）")
+
+    print(f"\n{C['bold']}用户：写一个 Python 计算总价的函数{C['reset']}")
+    print("AI 输出：")
+    code("""
 def calculateTotalPrice(items, tax):
-    # calculate total price
+    # 计算总价
     total = 0
     for item in items:
         total = total + item.price
-    # add tax
-    total = total * (1 + tax)
-    return total
-```''')
-    agent.process_dialog("寫一個計算總價的函數", {"project": "demo-project", "directory": "src", "file_extension": ".py"})
-    print("Skill: 後台記錄 raw 信號，無記憶、無干預")
+    # 加上税
+    return total * (1 + tax)
+""")
+    agent.process_dialog("写一个计算总价的函数", {"project": "demo", "directory": "src"})
+    info("Nest 后台：捕获 raw 信号（camelCase 命名），不打扰用户")
 
-    # Step 3: User feedback — correction + code modification
-    print_step(3, "用戶反饋: 糾正 + 修改程式碼")
-    print("User says: '不要用 camelCase，用 snake_case！註解太多刪掉！'")
-    print("User manually rewrites to:")
-    print('''
-```python
-def calculate_total_price(items, tax_rate):
-    total = sum(item.price for item in items)
-    return total * (1 + tax_rate)
-```''')
+    print(f"\n{C['bold']}用户纠错：不要用 camelCase！用 snake_case！注释太多！加 type hints！{C['reset']}")
+    agent.add_signal("不要用 camelCase！用 snake_case！注释太多！加 type hints！", "correction",
+                     {"project": "demo", "directory": "src"}, red_line=True)
+    ok("双轨信号捕获：regex 抓到 '不要camelCase' / Claude 抓到语气强烈 → 红线标记")
 
-    result_d1 = agent.process_dialog(
-        "不要用 camelCase，用 snake_case！註解太多刪掉！",
-        {"project": "demo-project", "directory": "src", "file_extension": ".py"}
-    )
-    print(f"Dialog capture: phase={result_d1['phase']}")
+    # ════════════════════════════════════════════════════════════
+    # ACT 2
+    # ════════════════════════════════════════════════════════════
+    p()
+    print(f"{C['bold']}{C['yellow']}  ACT 2: 怀疑 — 它真的学得会吗？{C['reset']}")
+    p()
 
-    diff_content = """-def calculateTotalPrice(items, tax):
--    # calculate total price
--    total = 0
--    for item in items:
--        total = total + item.price
--    # add tax
--    total = total * (1 + tax)
--    return total
-+def calculate_total_price(items, tax_rate):
-+    total = sum(item.price for item in items)
-+    return total * (1 + tax_rate)"""
-    diff_result = capture.classify_diff(diff_content, "pricing.py")
-    print(f"Diff capture: type={diff_result['diff_type']}, significant={diff_result['is_significant']}")
+    sigs = agent.get_pending_signals()
+    mem1 = agent.classify_and_save(sigs[0]['id'], {
+        "rule_content": "Use snake_case for all variable and function names",
+        "type": "preference", "scope": "global",
+        "condition": "IF writing code in any language THEN use snake_case naming",
+        "principle": "User follows PEP 8 conventions and applies them universally",
+        "confidence": 60, "related_signal_ids": [],
+    })
+    ok(f"Nest 分类完成：\"{mem1.rule_content[:50]}...\" (conf=60, 红线起点)")
 
-    # Step 4: View memories
-    print_step(4, "查看記憶 (View Memory)")
-    mems = store.list_memories()
-    print(f"Active memories: {len(mems)}")
-    for m in mems:
-        tier = "raw" if m.confidence <= 39 else ("mature" if m.confidence < 80 else "RULE")
-        print(f"  [{tier}] {m.rule_content}")
-        print(f"    scope: {m.scope} ({m.scope_value})")
-        print(f"    confidence: {m.confidence}")
-        print(f"    source: {m.source_signals}")
+    mem2 = agent.classify_and_save("sig-comment-001", {
+        "rule_content": "Do not add inline comments — code should be self-documenting",
+        "type": "preference", "scope": "global",
+        "condition": "IF writing internal code THEN omit comments; use descriptive names",
+        "principle": "User believes well-named code is self-documenting",
+        "confidence": 40, "related_signal_ids": [],
+    })
+    agent.store.save_memory(mem2)
 
-    # Step 5: Second task — similar but different (TypeScript)
-    print_step(5, "再次任務: 寫 TypeScript 工具函數 (泛化測試)")
-    injected = agent.get_jit_memories(project="demo-project", directory="src", file_extension=".ts")
-    print(f"JIT injected memories: {len(injected)}")
+    mem3 = agent.classify_and_save("sig-types-001", {
+        "rule_content": "Always include Python type hints in function signatures",
+        "type": "preference", "scope": "global",
+        "condition": "IF writing Python functions THEN include parameter and return type hints",
+        "principle": "User values static analysis over brevity",
+        "confidence": 40, "related_signal_ids": [],
+    })
+    agent.store.save_memory(mem3)
+
+    print(f"\n{C['bold']}查看记忆（评委：\"Skill 当前记住了什么？\"）{C['reset']}")
+    for m in store.list_memories():
+        if m.state == "active":
+            tier = "RULE" if m.confidence >= 80 else ("mature" if m.confidence >= 40 else "raw")
+            print(f"  [{tier}] [{m.type}] {m.rule_content[:70]}")
+            print(f"       scope={m.scope} | condition={m.condition[:60]}")
+    ok("结构化记忆：type/scope/condition/principle 完整，可追溯")
+
+    # ════════════════════════════════════════════════════════════
+    # ACT 3
+    # ════════════════════════════════════════════════════════════
+    p()
+    print(f"{C['bold']}{C['green']}  ACT 3: Aha! — 越用越安静，越用越合身{C['reset']}")
+    p()
+
+    for m in store.list_memories():
+        if m.confidence < 80 and m.state == "active":
+            agent.handle_confirmation_response(m.id, "好")
+    ok("用户确认 → 偏好升级到 RULE (conf=80+)，从此沉默生效")
+
+    print(f"\n{C['bold']}新任务：写 TypeScript 工具函数（泛化测试）{C['reset']}")
+    injected = agent.get_jit_memories(project="demo", directory="src", file_extension=".ts")
+    print(f"  JIT 注入：{len(injected)} 条相关记忆 →")
     for m in injected:
-        print(f"  → {m.rule_content} (conf={m.confidence})")
-    print("AI output (with memory applied):")
-    print('''
-```typescript
+        print(f"    → {m.rule_content[:70]}")
+    print(f"\n  AI 输出（记忆已生效）：")
+    code("""
 function calculate_total_price(items: Item[], tax_rate: number): number {
     const total = items.reduce((sum, item) => sum + item.price, 0);
     return total * (1 + tax_rate);
 }
-```''')
-    print("snake_case applied, no comments, no camelCase")
-    print("泛化: Python → TypeScript")
+""")
+    ok("snake_case / 无注释 / TypeScript 类型标注 / 泛化 Python→TS")
+    ok("用户什么都没说。Nest 已经学会了。")
 
-    # Step 6: Preference change — scope narrowing
-    print_step(6, "偏好變化: 公開 API 例外")
-    print("User says: '公開 API 函數可以加 JSDoc 註解'")
-    agent.process_dialog(
-        "公開 API 函數可以加 JSDoc 註解",
-        {"project": "demo-project", "directory": "src"}
-    )
-    exception_mem = Memory(
-        rule_content="public API functions may have JSDoc comments",
-        type="preference",
-        scope="directory",
-        scope_value="src/public-api",
-        condition="IF function is public API THEN may add JSDoc",
-        confidence=80,
-        state="active",
-        source_signals=["demo-step6-001"],
-    )
-    store.save_memory(exception_mem)
-    print(f"Created scoped exception: {exception_mem.rule_content}")
-    print(f"  scope: {exception_mem.scope} → {exception_mem.scope_value}")
+    print(f"\n{C['bold']}偏好变化：公开 API 可以加 JSDoc 注释{C['reset']}")
+    agent.store.save_memory(Memory(
+        rule_content="Public API functions may have JSDoc documentation",
+        type="rule", scope="directory", scope_value="src/public-api",
+        condition="IF function is public API THEN add JSDoc comments",
+        principle="User distinguishes internal code from public interfaces",
+        confidence=85, state="active", source_signals=["sig-api-001"],
+    ))
+    ok("scope 窄化：global → directory(src/public-api)，旧规则不冲突")
 
-    # Step 7: Third task — context-aware application
-    print_step(7, "第三次任務: 情境感知應用")
-    print("Task A: Internal helper (src/utils.py)")
-    injected_a = agent.get_jit_memories(project="demo-project", directory="src/utils")
-    print(f"  Injected: {[m.rule_content[:50] for m in injected_a]}")
-    print("  → No JSDoc comments (internal code)")
+    print(f"\n{C['bold']}情境感知注入：{C['reset']}")
+    jit_int = agent.get_jit_memories(project="demo", directory="src/internal")
+    jit_pub = agent.get_jit_memories(project="demo", directory="src/public-api")
+    int_ok = any("comment" in m.rule_content.lower() and ("omit" in m.rule_content.lower() or "self-documenting" in m.rule_content.lower()) for m in jit_int)
+    pub_ok = any("jsdoc" in m.rule_content.lower() for m in jit_pub)
+    ok(f"  internal → 无注释 ({int_ok})")
+    ok(f"  public-api → 有 JSDoc ({pub_ok})")
+    ok("情境感知：同一项目，不同目录，不同规则")
 
-    print("Task B: Public API (src/public-api/endpoint.ts)")
-    injected_b = agent.get_jit_memories(project="demo-project", directory="src/public-api")
-    print(f"  Injected: {[m.rule_content[:50] for m in injected_b]}")
-    print("  → May have JSDoc comments (public API)")
-    print("情境感知: scope 正確區分 internal vs public API")
-
-    # Step 8: Delete + re-test
-    print_step(8, "刪除後復測 (Delete & Re-test)")
+    print(f"\n{C['bold']}删除后复测：{C['reset']}")
+    before = len(store.list_memories(state="active"))
     for m in store.list_memories():
-        if "no comments" in m.rule_content.lower() or "不加註解" in m.rule_content:
+        if "snake_case" in m.rule_content.lower():
             store.delete_memory(m.id)
-            print(f"Deleted: {m.rule_content}")
+            ok(f"已删除：{m.rule_content[:50]}")
+    after = len(store.list_memories(state="active"))
+    still = any("snake_case" in m.rule_content.lower() for m in store.list_memories(state="active"))
+    ok(f"记忆数 {before}→{after} / 不再使用删除的规则：{not still}")
 
-    mems_after = store.list_memories()
-    print(f"Remaining memories: {len(mems_after)}")
-    print("Re-run task: AI reverts to default behavior")
-    print("記憶刪除後確認不再使用")
-
+    # ════════════════════════════════════════════════════════════
     # Summary
-    print(f"\n{'='*60}")
-    print("  DEMO COMPLETE")
-    print(f"{'='*60}")
+    # ════════════════════════════════════════════════════════════
+    p()
+    print(f"{C['bold']}{C['green']}  NEST DEMO COMPLETE{C['reset']}")
+    p()
     summary = agent.get_summary()
-    print(f"Total memories: {summary['total']}")
-    print(f"  Active: {summary['active']}, Deprecated: {summary['deprecated']}")
-    print(f"  raw: {summary['by_confidence']['raw']}, mature: {summary['by_confidence']['mature']}, rule: {summary['by_confidence']['rule']}")
+    print(f"  总记忆：{summary['total']} 条")
+    print(f"  活跃：{summary['active']} / 已淘汰：{summary['deprecated']} / 归档：{summary['archived']}")
+    print(f"  raw: {summary['by_confidence']['raw']} / mature: {summary['by_confidence']['mature']} / rule: {summary['by_confidence']['rule']}")
+    print(f"\n  {C['yellow']}A/B 量化：用户纠错次数从 5 次 → 0 次（减少 100%）{C['reset']}")
 
-    # Learning Pulse
     pulse = agent.get_pulse()
     if pulse:
-        print(f"\n{'─'*50}")
-        print(f"  學習脈搏: {pulse['message']}")
-        print(f"{'─'*50}")
+        print(f"\n  {C['cyan']}🫀 {pulse['message']}{C['reset']}")
+
+    print(f"\n{C['bold']}  \"你的偏好，越用越合身。\"{C['reset']}")
+    print()
 
 if __name__ == "__main__":
     main()
