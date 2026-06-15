@@ -7,15 +7,26 @@ from src.models import Signal, SignalSource, DialogType, DiffType
 
 
 CORRECTION_PATTERNS = [
+    # Chinese negations (simplified + traditional)
     (re.compile(r'不要[再]?\s*(\S+)'), DialogType.CORRECTION),
-    (re.compile(r'别[再]?\s*(\S+)'), DialogType.CORRECTION),
+    (re.compile(r'别[再]?\s*(\S+)'), DialogType.CORRECTION),   # simplified
+    (re.compile(r'別[再]?\s*(\S+)'), DialogType.CORRECTION),   # traditional
     (re.compile(r'应该\s*(\S+)'), DialogType.CORRECTION),
+    (re.compile(r'應該\s*(\S+)'), DialogType.CORRECTION),
     (re.compile(r'你又忘了\s*(.+)'), DialogType.CORRECTION),
     (re.compile(r'不是这样[，\s]*(.+)'), DialogType.CORRECTION),
-    (re.compile(r'改成?\s*(.+)'), DialogType.CORRECTION),
+    (re.compile(r'不是這樣[，\s]*(.+)'), DialogType.CORRECTION),
+    # "改成X" but NOT "改進" (improve) or "改善"
+    (re.compile(r'改成(?!進|善)\s*(.+)'), DialogType.CORRECTION),
     (re.compile(r'不对[，\s]*(.+)'), DialogType.CORRECTION),
+    (re.compile(r'不對[，\s]*(.+)'), DialogType.CORRECTION),
     (re.compile(r'错了[，\s]*(.+)'), DialogType.CORRECTION),
+    (re.compile(r'錯了[，\s]*(.+)'), DialogType.CORRECTION),
+    # English corrections
     (re.compile(r"don'?t\s+(\S+)", re.IGNORECASE), DialogType.CORRECTION),
+    (re.compile(r'never\s+(use|do|write|add|put|make|say)\s', re.IGNORECASE), DialogType.CORRECTION),
+    (re.compile(r'stop\s+(doing|using|writing|adding)\s', re.IGNORECASE), DialogType.CORRECTION),
+    (re.compile(r"should(n'?t| not)\s+(\S+)", re.IGNORECASE), DialogType.CORRECTION),
 ]
 
 PRE_INSTRUCTION_PATTERNS = [
