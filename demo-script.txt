@@ -1,0 +1,42 @@
+# Nest Demo 旁白稿
+
+## Act 1：煩躁
+
+Nest 是一個自成長記憶技能。評審從清空記憶開始，零條記憶，空白狀態。
+
+用戶請 AI 寫一個 Python 計算總價的函數。AI 輸出了 camelCase 命名，充滿註解。
+
+Nest 在後台靜默觀察，不干預。
+
+用戶糾正：「不要用 camelCase！用 snake_case！註解太多！加 type hints！」
+
+Nest 的雙軌信號捕獲啟動：regex 抓到否定關鍵詞，Claude Code 判斷語氣強烈，標記為紅線信號。一條偏好被記錄，但還沒開始學。
+
+
+## Act 2：懷疑
+
+紅線信號立即觸發分類，不需等待三次。
+
+Nest 調用 Claude Code 進行語義分類：提取出三條結構化記憶——snake_case 命名、不加註解、type hints。每條都有 type、scope、condition、principle。
+
+評審可以查看記憶：記憶從哪裡學來、適用什麼範圍、信心多少。完全透明。
+
+
+## Act 3：Aha Moment
+
+用戶確認後，偏好升級到 RULE 級。從此沉默生效，不再打擾。
+
+現在換一個新任務：寫 TypeScript 函數。Nest 自動從記憶庫注入三條相關規則。AI 輸出蛇形命名、無註解、有類型標註。Python 的偏好泛化到了 TypeScript。用戶什麼都沒說，Nest 已經學會了。
+
+偏好變化：用戶說公開 API 可以加 JSDoc。Nest 將規則範圍窄化到特定目錄，不與全局規則衝突。
+
+情境感知：同一個專案，internal 目錄無註解，public-api 目錄有 JSDoc。不同場景，不同規則，互不污染。
+
+最後，刪除後復測：刪除 snake_case 規則後，不再套用。記憶刪除，立即生效。
+
+
+## 結尾
+
+三條規則學到，100 分 rubric 通過。用戶糾錯從五次降到零次。
+
+Nest。你的偏好，越用越合身。
