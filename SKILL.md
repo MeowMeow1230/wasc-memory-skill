@@ -11,13 +11,19 @@ Operate in the background during Claude Code sessions. Do not interrupt the user
 
 ### On Every User Interaction
 
-1. **Capture signals** from user messages (corrections, pre-instructions, feedback) and code edits (style changes, structure rewrites, full deletes)
-2. **Red-line intercept**: if the user uses strong negation ("絕對不要", "never", "stop doing") or deletes entire AI outputs twice consecutively — classify immediately
-3. **Classify** when trigger_count >= 3 or red_line is true — extract structured memory with type, scope, scope_value, condition, and abstract principle
-4. **Confirm** once when a memory reaches mature tier (confidence 40-79): ask a lightweight PS question
-5. **Apply** silently when confidence >= 80 via JIT context injection (top 5 most relevant memories)
-6. **Decay** unused memories over time; **deprecate** overridden memories
-7. **Pulse** — periodic lightweight status (session start, rule upgrade, milestone) so you know the skill is alive
+1. **Capture signals** from user messages and code edits (regex-based, zero cost)
+2. **Normalize & group** similar corrections (deterministic, no LLM needed)
+3. **Red-line intercept**: strong negation ("絕對不要", "never") → classify immediately
+4. **Implicit confirmation**: user doesn't re-correct next turn → accelerate confidence
+5. **Classify** signals reaching threshold (trigger_count >= 3 or red_line):
+   - Review the signal content and context
+   - Extract structured memory: rule_content, type, scope, scope_value, condition, principle
+   - Save to the memory store
+   - **You (Claude Code) perform this classification using your own intelligence — no external API.**
+6. **Confirm** once when a memory reaches mature tier (confidence 40-79): ask "PS: ..."
+7. **Apply** silently when confidence >= 80 via JIT context injection (top 5)
+8. **Decay** unused memories; **deprecate** overridden ones
+9. **Pulse** — periodic status (session start, rule upgrade, milestone)
 
 ### Memory Model
 

@@ -1,1 +1,2 @@
-anthropic>=0.49.0
+# No external dependencies. Classification is done by Claude Code via SKILL.md contract.
+# The local fallback classifier uses only stdlib.

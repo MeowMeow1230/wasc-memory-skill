@@ -15,11 +15,7 @@ class Agent:
     def __init__(self, api_key: str = "", base_url: str = "", model: str = ""):
         self.store = MemoryStore()
         self.capture = SignalCapture()
-        self.classifier = Classifier(
-            api_key=api_key or os.environ.get("ANTHROPIC_AUTH_TOKEN", ""),
-            base_url=base_url or os.environ.get("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"),
-            model=model or os.environ.get("ANTHROPIC_MODEL", "deepseek-v4-pro"),
-        )
+        self.classifier = Classifier()
         self._signal_pool: list[Signal] = []
         self._pending_confirmations: dict[str, Memory] = {}
         self._pulse_session_start_sent: bool = False
@@ -28,6 +24,7 @@ class Agent:
         # Implicit confirmation: per-project tracking
         self._last_correction: dict[str, str] = {}   # project -> signal_id
         self._last_correction_norm: dict[str, str] = {}  # project -> normalized_topic
+        self._pending_classifications: list[Signal] = []  # signals awaiting Claude classification
 
     # ── Public API ──────────────────────────────────────────────
 
@@ -209,13 +206,18 @@ class Agent:
                     mem.confidence = max(mem.confidence, 55)
                 self.store.save_memory(mem)
 
-    # ── LLM Classification ──────────────────────────────────────
+    # ── Classification ──────────────────────────────────────────
 
     def _run_classifier(self, sig: Signal, project: str, result: dict) -> dict:
-        """Run the LLM classifier on a signal and update result."""
+        """Queue signal for Claude Code classification (via SKILL.md contract).
+
+        In test/replay mode (no Claude), uses classify_local() as fallback.
+        """
         related = self._get_related_signals(sig, project)
         active_mems = self.store.list_memories(state="active")
-        memory = self.classifier.classify(sig, related, active_mems)
+
+        # Try local classifier first (works without API)
+        memory = self.classifier.classify_local(sig, related)
         if memory:
             if not memory.scope_value:
                 memory.scope_value = project
@@ -228,7 +230,28 @@ class Agent:
                 self._pending_confirmations[memory.id] = memory
                 result["need_confirmation"] = True
                 result["confirmation_message"] = self._build_confirmation_message(memory)
+        else:
+            # Queue for Claude to process
+            self._pending_classifications.append(sig)
+            result["phase"] = "pending_classification"
+
         return result
+
+    def get_pending_classifications(self) -> list[dict]:
+        """Get signals awaiting Claude Code classification. Called by SKILL.md contract."""
+        pending = []
+        for sig in self._pending_classifications:
+            related = self._get_related_signals(sig, "")
+            active_mems = self.store.list_memories(state="active")
+            request = self.classifier.format_request(sig, related, active_mems)
+            pending.append({
+                "signal_id": sig.id,
+                "content": sig.content,
+                "trigger_count": sig.trigger_count,
+                "request": request,
+            })
+        self._pending_classifications.clear()
+        return pending
 
     # ── Normalization & Dedup (deterministic, zero LLM) ─────────
 

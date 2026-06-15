@@ -1,70 +1,35 @@
-"""LLM classifier with pattern discovery and red-line routing."""
+"""Classifier prompt provider. Actual classification is done by Claude Code (via SKILL.md contract)."""
 import json
-import os
 from typing import Optional
-from anthropic import Anthropic
-from src.models import Signal, Memory, RED_LINE_START, MATURE_THRESHOLD
+from src.models import Signal, Memory, MATURE_THRESHOLD
 
 
-CLASSIFIER_SYSTEM_PROMPT = """You are a memory classifier for an AI coding assistant. Your job: extract structured, durable memories from raw user signals.
+CLASSIFIER_CONTRACT = """## Classification Contract
 
-Input: A signal (dialog correction, pre-instruction, or diff behavior) with context.
-Output: A structured memory in JSON format.
+When signals reach threshold (trigger_count >= 3 or red_line), classify them into structured memories.
 
-## Classification Rules
+### Output a Memory with:
 
-1. **type**: Classify as one of:
-   - "preference": Code style, naming, formatting habits (high frequency, low cognitive load)
-   - "rule": Situational rules ("in this project, always commit before editing")
-   - "workflow": Communication rhythm, tool usage, Git conventions (medium frequency, multi-step)
-   - "method": Working methods ("debug by fixing the class, not the instance")
+1. **rule_content**: The actionable rule. Clear, specific.
 
-2. **scope**: Determine applicability range:
-   - "global": Applies everywhere, all projects
-   - "workspace": Applies to a workspace/collection of projects
-   - "repo": Specific to one repository
-   - "directory": Specific to a directory path
+2. **type**: "preference" (style/naming) | "rule" (situational) | "workflow" (rhythm) | "method" (approach)
 
-3. **scope_value**: The concrete path or project name. Empty string for global.
+3. **scope**: "global" | "workspace" | "repo" | "directory"
 
-4. **condition**: Write as "IF [context] THEN [action]". Must be specific and actionable.
+4. **scope_value**: Concrete path/project name. Empty for global.
 
-5. **principle**: Abstract the signal to a general principle. What does this reveal about the user?
+5. **condition**: IF [context] THEN [action] format.
 
-## Pattern Discovery
+6. **principle**: What does this reveal about the user? Abstract from the concrete case.
 
-Check: are there patterns in the signal history that the user has NEVER explicitly stated, but their behavior consistently shows? If yes, include a `discovered_pattern` field.
+7. **confidence**: Start at 40 (mature). Red-line signals start at 60.
 
-## Output Format
-
-```json
-{
-  "rule_content": "clear actionable rule",
-  "type": "preference|rule|workflow|method",
-  "scope": "global|workspace|repo|directory",
-  "scope_value": "path or empty",
-  "condition": "IF ... THEN ...",
-  "principle": "abstract principle",
-  "discovered_pattern": null
-}
-```
-
-If the signal is noise or not actionable, return: `{"skip": true, "reason": "..."}`
+### Skip if: noise, one-time instruction, already covered by existing memory.
 """
 
 
 class Classifier:
-    def __init__(self, api_key: str = "", base_url: str = "", model: str = ""):
-        self.api_key = api_key or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-        self.base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
-        self.model = model or os.environ.get("ANTHROPIC_MODEL", "deepseek-v4-pro")
-        self._client: Optional[Anthropic] = None
-
-    @property
-    def client(self) -> Anthropic:
-        if self._client is None:
-            self._client = Anthropic(api_key=self.api_key, base_url=self.base_url)
-        return self._client
+    """Provides classification prompts. Claude Code does the actual classification."""
 
     def should_trigger_llm(self, signal: Signal) -> bool:
         if signal.red_line:
@@ -74,16 +39,21 @@ class Classifier:
         return False
 
     def get_start_confidence(self, red_line: bool = False) -> int:
-        if red_line:
-            return RED_LINE_START
-        return MATURE_THRESHOLD
+        return 60 if red_line else MATURE_THRESHOLD
 
-    def classify(self, signal: Signal, related_signals: list[Signal], existing_memories: list[Memory]) -> Optional[Memory]:
+    def format_request(self, signal: Signal, related_signals: list[Signal], existing_memories: list[Memory]) -> str:
+        """Format a classification request for Claude Code to process."""
         context_str = json.dumps(signal.context, ensure_ascii=False) if signal.context else "{}"
-        related_str = json.dumps([{"content": s.content, "source": s.source, "dialog_type": s.dialog_type, "diff_type": s.diff_type} for s in related_signals], ensure_ascii=False, indent=2)
-        existing_str = json.dumps([{"rule_content": m.rule_content, "scope": m.scope, "scope_value": m.scope_value, "confidence": m.confidence} for m in existing_memories[-5:]], ensure_ascii=False, indent=2)
+        related_str = json.dumps([
+            {"content": s.content, "source": s.source, "trigger_count": s.trigger_count}
+            for s in related_signals
+        ], ensure_ascii=False, indent=2)
+        existing_str = json.dumps([
+            {"rule_content": m.rule_content, "scope": m.scope, "scope_value": m.scope_value, "confidence": m.confidence}
+            for m in existing_memories[-5:]
+        ], ensure_ascii=False, indent=2)
 
-        user_msg = f"""Signal:
+        return f"""Signal to classify:
   source: {signal.source}
   dialog_type: {signal.dialog_type}
   diff_type: {signal.diff_type}
@@ -92,53 +62,35 @@ class Classifier:
   trigger_count: {signal.trigger_count}
   red_line: {signal.red_line}
 
-Related signals from the same pattern:
+Related signals (same pattern):
 {related_str}
 
 Existing active memories:
 {existing_str}
 
-Classify this signal. If it reveals a durable preference or pattern, extract it. If it's noise, skip it."""
+{CLASSIFIER_CONTRACT}
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=500,
-            system=CLASSIFIER_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_msg}],
-        )
-        result_text = "".join(
-            block.text for block in response.content
-            if getattr(block, 'type', None) == 'text'
-        )
-        result = self._parse_json(result_text)
+Classify this signal into a Memory JSON and save to the store."""
+
+    def classify_local(self, signal: Signal, related_signals: list[Signal]) -> Optional[Memory]:
+        """Simple rule-based classification for testing when no Claude Code is available.
+        Uses the normalized signal content directly as the rule.
+        """
         source_ids = [s.id for s in related_signals] + [signal.id]
-        return self.parse_result(result, source_ids)
+        content = signal.content.strip()
 
-    def parse_result(self, result: dict, source_signal_ids: list[str]) -> Optional[Memory]:
-        if result.get("skip"):
+        # Skip empty or very short
+        if len(content) < 3:
             return None
-        return Memory(
-            rule_content=result.get("rule_content", ""),
-            type=result.get("type", "preference"),
-            scope=result.get("scope", "global"),
-            scope_value=result.get("scope_value", ""),
-            condition=result.get("condition", ""),
-            principle=result.get("principle", ""),
-            confidence=MATURE_THRESHOLD,
-            state="active",
-            source_signals=source_signal_ids,
-        )
 
-    def _parse_json(self, text: str) -> dict:
-        text = text.strip()
-        for delimiter in ["```json\n", "```\n", "```json", "```"]:
-            if delimiter in text:
-                parts = text.split(delimiter)
-                if len(parts) >= 2:
-                    text = parts[1]
-                break
-        text = text.strip().strip("`").strip()
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {"skip": True, "reason": f"JSON parse error: {text[:100]}"}
+        return Memory(
+            rule_content=content[:200],
+            type="preference",
+            scope="global",
+            scope_value="",
+            condition=f"IF similar task THEN {content[:80]}",
+            principle=content[:200],
+            confidence=self.get_start_confidence(red_line=signal.red_line),
+            state="active",
+            source_signals=source_ids,
+        )
