@@ -1,204 +1,183 @@
-"""Agent 主邏輯 — 組合記憶分類器、仲裁器、注入器，處理每次對話"""
+"""Agent orchestrator: five-stage pipeline with learning/application phases and learning pulse."""
+import os
+import re
+from typing import Optional
+from src.models import (
+    Signal, Memory, MemoryState, MemoryScope,
+    RULE_MIN, MATURE_THRESHOLD, RAW_MAX, JIT_TOP_K,
+)
+from src.memory_store import MemoryStore
+from src.signal_capture import SignalCapture
+from src.classifier import Classifier
 
-from datetime import datetime
-from src.llm import LLMClient
-from src.models import Memory, MemoryType, MemoryScope, MemoryStatus
-from src.store import MemoryStore
-from src.extractor import MemoryExtractor
-from src.arbitrator import ConflictArbitrator
-from src.injector import MemoryInjector
 
+class Agent:
+    def __init__(self, api_key: str = "", base_url: str = "", model: str = ""):
+        self.store = MemoryStore()
+        self.capture = SignalCapture()
+        self.classifier = Classifier(
+            api_key=api_key or os.environ.get("ANTHROPIC_AUTH_TOKEN", ""),
+            base_url=base_url or os.environ.get("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"),
+            model=model or os.environ.get("ANTHROPIC_MODEL", "deepseek-v4-pro"),
+        )
+        self._signal_pool: list[Signal] = []
+        self._pending_confirmations: dict[str, Memory] = {}
+        self._pulse_session_start_sent: bool = False
+        self._pulse_last_upgrade_count: int = 0
+        self._pulse_last_milestone: int = 0
 
-class MemoryAgent:
-    """具備自成長記憶能力的程式開發助手 Agent"""
+    def process_dialog(self, text: str, context: dict) -> dict:
+        sig = self.capture.capture_dialog(text, context)
+        if sig is None:
+            return {"phase": "no_signal"}
 
-    def __init__(self, client: LLMClient, store: MemoryStore):
-        self.client = client
-        self.store = store
+        existing = self._find_similar_signal(sig)
+        if existing:
+            existing.trigger_count += 1
+            sig = existing
+        else:
+            self._signal_pool.append(sig)
 
-        # 子組件
-        self.extractor = MemoryExtractor(client)
-        self.arbitrator = ConflictArbitrator()
-        self.injector = MemoryInjector(store)
+        result = {
+            "phase": "observed",
+            "signal_ids": [sig.id],
+            "need_confirmation": False,
+            "confirmation_message": None,
+            "injected_memories": [],
+        }
 
-        # 內存中的記憶列表（與 Mem0 同步）
-        self.memories: list[Memory] = []
-        self.conversation_history: list[dict] = []
+        if self.classifier.should_trigger_llm(sig):
+            related = self._get_related_signals(sig)
+            active_mems = self.store.list_memories(state="active")
+            memory = self.classifier.classify(sig, related, active_mems)
+            if memory:
+                memory.confidence = self.classifier.get_start_confidence(red_line=sig.red_line)
+                self.store.save_memory(memory)
+                result["phase"] = "classified"
+                result["memory_id"] = memory.id
+                if memory.confidence >= MATURE_THRESHOLD and memory.confidence < RULE_MIN:
+                    self._pending_confirmations[memory.id] = memory
+                    result["need_confirmation"] = True
+                    result["confirmation_message"] = self._build_confirmation_message(memory)
 
-    def reset(self) -> dict:
-        """完全重置記憶和對話歷史"""
-        self.store.delete_all()
-        self.memories = []
-        self.conversation_history = []
-        return {"status": "reset_complete", "memory_count": 0}
+        return result
 
-    def view_memories(self, include_deprecated: bool = False) -> list[dict]:
-        """查看所有記憶"""
-        mems = self.memories
-        if not include_deprecated:
-            mems = [m for m in mems if m.status == MemoryStatus.ACTIVE]
-        return [m.to_view() for m in mems]
+    def handle_confirmation_response(self, memory_id: str, response: str) -> dict:
+        memory = self.store.get_memory(memory_id)
+        if not memory:
+            return {"error": "memory not found"}
 
-    def edit_memory(self, memory_id: str, updates: dict) -> dict:
-        """編輯指定記憶的欄位"""
-        for m in self.memories:
-            if m.id == memory_id:
-                for key, value in updates.items():
-                    if hasattr(m, key):
-                        setattr(m, key, value)
-                m.updated_at = datetime.now().isoformat()
-                # 更新 Mem0 中的記錄：刪舊存新
-                self.store.delete(memory_id)
-                self.store.add(m)
-                return {"status": "updated", "memory": m.to_view()}
-        return {"status": "not_found", "memory_id": memory_id}
+        response_lower = response.strip().lower()
 
-    def delete_memory(self, memory_id: str) -> dict:
-        """刪除指定記憶"""
-        self.store.delete(memory_id)
-        self.memories = [m for m in self.memories if m.id != memory_id]
-        return {"status": "deleted", "memory_id": memory_id}
+        if any(word in response_lower for word in ["好", "可以", "嗯", "對", "对", "yes", "ok", "y"]):
+            if any(limit_word in response for limit_word in ["專案", "项目", "project", "這個", "这个"]):
+                memory.scope = "repo"
+                memory.scope_value = self._extract_scope_from_response(response)
+            memory.confidence = RULE_MIN
+            self.store.save_memory(memory)
+            self._pending_confirmations.pop(memory_id, None)
+            return {"action": "upgraded_to_rule", "memory_id": memory_id, "confidence": memory.confidence}
 
-    def chat(self, user_message: str) -> str:
-        """處理一次對話：注入記憶 → 呼叫 LLM → 提取新記憶 → 仲裁衝突 → 存儲"""
+        if any(word in response_lower for word in ["不要", "不行", "不對", "不对", "no", "n"]):
+            memory.confidence = 10
+            self.store.save_memory(memory)
+            self._pending_confirmations.pop(memory_id, None)
+            return {"action": "downgraded", "memory_id": memory_id, "confidence": memory.confidence}
 
-        # 1. 注入相關記憶到 system prompt
-        memory_block = self.injector.inject(user_message, self.memories)
-        system_prompt = self._build_system_prompt(memory_block)
+        return {"action": "unclear", "memory_id": memory_id}
 
-        # 2. 呼叫 LLM
-        reply = self.client.chat(
-            messages=self.conversation_history + [
-                {"role": "user", "content": user_message}
-            ],
-            system=system_prompt,
-            max_tokens=4096,
+    def get_jit_memories(self, project: str = "", directory: str = "", file_extension: str = "") -> list[Memory]:
+        return self.store.search_by_context(
+            project=project, directory=directory, file_extension=file_extension,
+            min_confidence=RULE_MIN,
         )
 
-        # 3. 記錄對話
-        self.conversation_history.append({"role": "user", "content": user_message})
-        self.conversation_history.append({"role": "assistant", "content": reply})
-
-        # 4. 判斷用戶訊息是本質反饋還是臨時任務
-        msg_type = self.extractor.classify_feedback(user_message, user_message)
-
-        # 5. 如果是反饋，提取新記憶
-        if msg_type == "feedback":
-            new_memories = self.extractor.extract(user_message, self.memories)
-
-            # 偵測用戶是否在尋求解釋（新手特徵）
-            explain_kw = ["為什麼", "怎麼操作", "如何", "解釋", "說明", "不懂",
-                         "why", "how to", "explain", "help me understand"]
-            user_is_learning = any(kw in user_message.lower() for kw in explain_kw)
-
-            # 6. 對每條新記憶做衝突仲裁
-            for new_mem in new_memories:
-                # 解釋需求相關 → 強制轉為 method + 自動衰退
-                explain_kw = ["解釋", "步驟", "新手", "學習", "初學", "explain", "step", "beginner",
-                             "詳細", "detail", "understand", "理解", "說明"]
-                is_explain = any(kw in new_mem.content.lower() for kw in explain_kw)
-                if is_explain or (new_mem.type == MemoryType.METHOD and user_is_learning):
-                    new_mem.type = MemoryType.METHOD
-                    new_mem.auto_decay = True
-                    new_mem.decay_score = 100
-                    if not new_mem.decay_topic:
-                        new_mem.decay_topic = self._guess_topic(user_message)
-
-                to_keep, to_deprecate = self.arbitrator.resolve(
-                    new_mem, self.memories
-                )
-
-                for mem in to_keep:
-                    self.memories.append(mem)
-                    self.store.add(mem)
-
-                for mem in to_deprecate:
-                    mem.status = MemoryStatus.DEPRECATED
-
-        # 7. 自動衰退掃描：檢查哪些 auto_decay 記憶該扣分/強化
-        self._process_decay(user_message)
-
-        return reply
-
-    def _is_learning_behavior(self, msg: str) -> bool:
-        """偵測用戶是否在尋求解釋、學習"""
-        kw = ["為什麼", "怎麼操作", "如何運作", "解釋", "說明一下", "不懂",
-              "詳細", "每一步", "why", "how to", "explain", "step by step",
-              "help me understand", "what does", "can you explain"]
-        return any(k in msg.lower() for k in kw)
-
-    def _process_decay(self, user_message: str):
-        """掃描所有 auto_decay 記憶：精準匹配主題 → 強化 or 衰退"""
-        user_is_learning = self._is_learning_behavior(user_message)
-
-        # 第一優先：用戶在學習但尚無匹配的 auto_decay 記憶 → 自動創建
-        if user_is_learning:
-            topic = self._guess_topic(user_message)
-            has_matching = any(
-                m.auto_decay and m.status == MemoryStatus.ACTIVE and m.decay_topic == topic
-                for m in self.memories
-            )
-            if not has_matching:
-                explain_mem = Memory(
-                    type=MemoryType.METHOD,
-                    content=f"用戶需要關於 {topic} 的詳細解釋",
-                    scope=MemoryScope.GLOBAL,
-                    priority=7,
-                    source=f"自動偵測: {user_message[:60]}",
-                    auto_decay=True,
-                    decay_score=100,
-                    decay_topic=topic,
-                )
-                self.memories.append(explain_mem)
-                try:
-                    self.store.add(explain_mem)
-                except Exception:
-                    pass
-
-        for mem in self.memories:
-            if not mem.auto_decay or mem.status != MemoryStatus.ACTIVE:
+    def detect_conflicts(self, new_memory: Memory, existing_memories: list[Memory]) -> list[Memory]:
+        conflicts = []
+        for old in existing_memories:
+            if old.id == new_memory.id:
                 continue
-
-            # 主題匹配：該訊息是否與此記憶的主題相關
-            topic_match = (
-                not mem.decay_topic or
-                mem.decay_topic.lower() in user_message.lower() or
-                any(kw in user_message.lower() for kw in mem.decay_topic.lower().split(","))
-            )
-
-            if user_is_learning and topic_match:
-                # 用戶在學且主題相關 → 強化
-                mem.reinforce()
-            elif user_is_learning and not topic_match:
-                # 用戶在學別的主題 → 不影響這條
+            if old.scope != new_memory.scope or old.scope_value != new_memory.scope_value:
                 continue
-            else:
-                # 用戶沒在學 → 所有衰退記憶都扣分
-                mem.decay(amount=20)
+            if self._topic_overlap(new_memory.rule_content, old.rule_content) and new_memory.rule_content != old.rule_content:
+                conflicts.append(old)
+        return conflicts
 
-    def _guess_topic(self, msg: str) -> str:
-        """從用戶訊息中動態提取學習主題 — 不限類別，自由擴展"""
-        # 提取大寫開頭的技術名詞（React, TypeScript, Python, Docker...）
-        import re
-        # 匹配英文技術名詞：大寫開頭或全大寫縮寫
-        tech_words = set(re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)*\b|\b[A-Z]{2,}\b', msg))
-        if tech_words:
-            return ", ".join(sorted(tech_words)[:3])
-        # fallback: 提取第一個 "為什麼/怎麼" 後面 3 個詞的關鍵字
-        m = re.search(r'(?:為什麼|怎麼|如何|why|how to|explain)\s*(.+?)(?:[?？]|$)', msg.lower())
-        if m:
-            words = m.group(1).strip().split()[:3]
-            return " ".join(words)
-        return "General"
+    def resolve_conflict(self, new_memory: Memory, old_memory: Memory):
+        if new_memory.confidence >= old_memory.confidence:
+            old_memory.state = MemoryState.DEPRECATED.value
+            self.store.save_memory(old_memory)
 
-    def _build_system_prompt(self, memory_block: str) -> str:
-        base = """你是一個程式開發助手，能夠記住用戶的偏好和規則。
+    def get_summary(self) -> dict:
+        all_mems = self.store.list_memories()
+        return {
+            "total": len(all_mems),
+            "active": sum(1 for m in all_mems if m.state == "active"),
+            "deprecated": sum(1 for m in all_mems if m.state == "deprecated"),
+            "archived": sum(1 for m in all_mems if m.state == "archived"),
+            "by_confidence": {
+                "raw": sum(1 for m in all_mems if m.confidence <= RAW_MAX),
+                "mature": sum(1 for m in all_mems if RAW_MAX < m.confidence < RULE_MIN),
+                "rule": sum(1 for m in all_mems if m.confidence >= RULE_MIN),
+            },
+        }
 
-當用戶給你反饋時（例如 "我偏好 TypeScript"、"以後都用 functional component"），
-記住這些偏好並在後續對話中自動應用。
+    def get_pulse(self) -> Optional[dict]:
+        all_mems = self.store.list_memories()
+        active = [m for m in all_mems if m.state == "active"]
+        rules = [m for m in active if m.confidence >= RULE_MIN]
+        matures = [m for m in active if MATURE_THRESHOLD <= m.confidence < RULE_MIN]
 
-如果記憶區塊中有用戶偏好，請在回答時主動應用這些偏好，
-不需要等用戶再次提醒。"""
-        if memory_block:
-            return base + "\n\n" + memory_block
-        return base
+        if not self._pulse_session_start_sent:
+            self._pulse_session_start_sent = True
+            if active:
+                return {
+                    "type": "session_start",
+                    "message": f"歡迎回來。上次學到 {len(active)} 條偏好（{len(rules)} 條已自動套用、{len(matures)} 條學習中）。`view` 查看。"
+                }
+
+        if len(rules) > self._pulse_last_upgrade_count:
+            newest = rules[-1]
+            self._pulse_last_upgrade_count = len(rules)
+            return {
+                "type": "rule_upgraded",
+                "message": f"PS: 新規則已成熟：「{newest.rule_content[:60]}」。`view` 查看全部。",
+                "memory_id": newest.id,
+            }
+
+        current_milestone = len(active) // 5
+        if current_milestone > self._pulse_last_milestone:
+            self._pulse_last_milestone = current_milestone
+            return {
+                "type": "milestone",
+                "message": f"目前共 {len(active)} 條偏好，{len(rules)} 條已自動套用。你最近很少有重複糾正了。",
+            }
+
+        return None
+
+    def _find_similar_signal(self, sig: Signal) -> Optional[Signal]:
+        for s in self._signal_pool:
+            if s.content == sig.content and s.source == sig.source:
+                return s
+        return None
+
+    def _get_related_signals(self, sig: Signal) -> list[Signal]:
+        return [s for s in self._signal_pool if s.id != sig.id and s.content == sig.content]
+
+    def _get_signals_by_content(self, content: str) -> list[Signal]:
+        return [s for s in self._signal_pool if content in s.content]
+
+    def _build_confirmation_message(self, memory: Memory) -> str:
+        return f"PS: 我注意到 {memory.rule_content}，以後 {memory.condition or '這樣做'} 好嗎？"
+
+    def _extract_scope_from_response(self, response: str) -> str:
+        m = re.search(r'(?:專案|项目|project|這個|这个)\s*[:：]?\s*(\S+)', response)
+        return m.group(1) if m else ""
+
+    def _topic_overlap(self, text_a: str, text_b: str) -> bool:
+        a_words = set(text_a.lower().split())
+        b_words = set(text_b.lower().split())
+        stop = {"the", "a", "an", "in", "on", "at", "to", "for", "of", "and", "or", "is", "are", "be", "的", "了", "在", "是", "有", "和", "就", "都", "也"}
+        a_clean = a_words - stop
+        b_clean = b_words - stop
+        return len(a_clean & b_clean) >= 2 if a_clean and b_clean else False
