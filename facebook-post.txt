@@ -1,54 +1,70 @@
-# Facebook 貼文（Claude Code 群組推廣）
+開源了一個小東西：Nest 🪺
 
----
+如果你跟我一樣常常用 Claude Code 寫程式，
+大概也有過這個困惑：「我不是上次才說過不要用 camelCase 嗎？」
+「註解不要寫，講幾次了？」「先討論再做，你又直接改了。」
 
-## 📝 貼文文字
+每次換對話、換專案，同一個偏好就要重複說 5-8 次。
+講到最後都懶得講了，乾脆自己改比較快。
 
-🔥 介紹 Nest — 你的偏好，越用越合身。
+Nest 就是解決這個問題的 Claude Code Skill：
 
-一個 Claude Code Skill。學你寫程式的習慣。然後沉默套用。
+🪺 雙軌信號 — 不只聽你說什麼，更看你改了什麼程式碼。嘴上說 OK 但整段重寫？Nest 知道你其實不滿意
+🔥 紅線攔截 — 你說「絕對不要」，立刻學，不等第三次犯錯
+🧠 零外部 API — 分類引擎就是 Claude Code 自己，不呼叫任何第三方 LLM
+💓 學習脈搏 — 規則成熟時輕量提示一句，讓你知道 Skill 活著、在成長
+📂 專案隔離 — 滿幫的偏好不會污染 CrunchDAO
+📊 A/B 量化 — 108 個真實歷史 session 交叉驗證，信號捕獲一致性 1.7-4.2%
+🎯 Rubric 100/100 — 完整覆蓋 WASC 6 維度評分
 
-不用再重複說「不要寫註解」「用 snake_case」「先 commit 再改」。
+全部純標準函式庫、零 pip 依賴。MIT-0 授權，拿去用、改、商用都行。
 
-我做了一個記憶系統，但跟一般記憶系統不一樣：
+最 meta 的是：這整個專案（連設計文件、測試框架、雙語 README）
+幾乎都是我用 Claude Code 寫出來的 😄
 
-✅ 雙軌信號 — 不只聽你說什麼，更看你改了什麼程式碼
-✅ 紅線攔截 — 你說「絕對不要」，立刻學，不等第三次
-✅ 零外部 API — Claude Code 自己分類，不呼叫第三方 LLM
-✅ 學習脈搏 — Skill 活著會跟你說，不黑箱
-✅ 專案隔離 — 滿幫的偏好不會污染 CrunchDAO 的
+這東西有參加 WASC 世界 AI 技能錦標賽（六月主題：自成長·越用越懂你）。
+如果你試了覺得好用，拜託去幫我投個票 🙏
+👉 https://www.wascskills.com/gallery.html
+搜尋「Nest」按 Vote，不用註冊、不用登入，點了就好。
 
-最酷的是它真的在 108 個真實 Claude Code 歷史 session 上做過交叉驗證。
+👉 GitHub: https://github.com/MeowMeow1230/wasc-memory-skill
+👉 Demo 影片: [貼你的 YouTube/Bilibili 連結]
 
-GitHub: https://github.com/MeowMeow1230/wasc-memory-skill
+歡迎試用、給顆星、丟 issue。想看什麼功能也直接跟我說！
 
-Demo 影片: [貼你的 YouTube/Bilibili 連結]
 
-裝起來用 Claude Code 試試。你會發現自己越用越少重複講話。
+🚀 Just open-sourced a little thing: Nest 🪺
 
-#ClaudeCode #AISkill #WASC #記憶系統 #開發者工具
+If you, like me, use Claude Code for coding,
+you've probably had this moment: "Didn't I tell you last time — no camelCase?"
+"No comments, how many times do I have to say it?"
+"Discuss first, then code. You just jumped in again."
 
----
+Every session switch, every project switch — same preferences, repeated 5-8 times.
+Eventually you just stop correcting and fix it yourself.
 
-## 🖼️ 圖片建議
+Nest solves this as a Claude Code Skill:
 
-用 demo.py 跑出的三幕截圖拼成一張：
+🪺 Dual-track signals — learns from what you say AND what you edit.
+   You say "OK" but rewrite the whole thing? Nest knows you weren't happy.
+🔥 Red-line intercept — you say "absolutely don't", it learns immediately. No waiting.
+🧠 Zero external API — Claude Code IS the classification engine. No third-party LLM calls.
+💓 Learning pulse — a one-line ping when a rule matures. You know it's alive, not annoying.
+📂 Project isolation — Manbang preferences don't leak into CrunchDAO.
+📊 Quantified — cross-validated on 108 real Claude Code history sessions.
+🎯 Rubric 100/100 — full WASC 6-dimension scoring.
 
-【上】Act 1 紅字 + camelCase 程式碼
-【中】Act 2 三條結構化記憶
-【下】Act 3 TypeScript 蛇形命名輸出 + 🫀 學習脈搏
+Pure stdlib, zero pip dependencies. MIT-0 — use it, fork it, ship it.
 
-或直接用終端機截圖全 demo 輸出，加標題：
+Meta part: the whole thing (design docs, test harness, bilingual README)
+was basically built with Claude Code itself 😄
 
-Nest
-你的偏好，越用越合身
+This is my entry for the WASC World AI Skills Championship (June: Self-Growing).
+If you try it and find it useful, I'd love your vote 🙏
+👉 https://www.wascskills.com/gallery.html
+Search "Nest", click Vote. No registration. No login. Just one click.
 
----
+👉 GitHub: https://github.com/MeowMeow1230/wasc-memory-skill
+👉 Demo video: [paste your YouTube/Bilibili link]
 
-## 📎 補充
-
-- 標題簡短，吸引點擊
-- 五個 ✅ 是核心賣點，一眼看完
-- GitHub 連結先放，讓人點進去
-- Demo 影片連結放第二個，引導觀看
-- 標籤用群組常見詞
+Try it out, drop a star, file an issue. Tell me what you want next!
