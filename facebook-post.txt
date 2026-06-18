@@ -1,0 +1,54 @@
+# Facebook 貼文（Claude Code 群組推廣）
+
+---
+
+## 📝 貼文文字
+
+🔥 介紹 Nest — 你的偏好，越用越合身。
+
+一個 Claude Code Skill。學你寫程式的習慣。然後沉默套用。
+
+不用再重複說「不要寫註解」「用 snake_case」「先 commit 再改」。
+
+我做了一個記憶系統，但跟一般記憶系統不一樣：
+
+✅ 雙軌信號 — 不只聽你說什麼，更看你改了什麼程式碼
+✅ 紅線攔截 — 你說「絕對不要」，立刻學，不等第三次
+✅ 零外部 API — Claude Code 自己分類，不呼叫第三方 LLM
+✅ 學習脈搏 — Skill 活著會跟你說，不黑箱
+✅ 專案隔離 — 滿幫的偏好不會污染 CrunchDAO 的
+
+最酷的是它真的在 108 個真實 Claude Code 歷史 session 上做過交叉驗證。
+
+GitHub: https://github.com/MeowMeow1230/wasc-memory-skill
+
+Demo 影片: [貼你的 YouTube/Bilibili 連結]
+
+裝起來用 Claude Code 試試。你會發現自己越用越少重複講話。
+
+#ClaudeCode #AISkill #WASC #記憶系統 #開發者工具
+
+---
+
+## 🖼️ 圖片建議
+
+用 demo.py 跑出的三幕截圖拼成一張：
+
+【上】Act 1 紅字 + camelCase 程式碼
+【中】Act 2 三條結構化記憶
+【下】Act 3 TypeScript 蛇形命名輸出 + 🫀 學習脈搏
+
+或直接用終端機截圖全 demo 輸出，加標題：
+
+Nest
+你的偏好，越用越合身
+
+---
+
+## 📎 補充
+
+- 標題簡短，吸引點擊
+- 五個 ✅ 是核心賣點，一眼看完
+- GitHub 連結先放，讓人點進去
+- Demo 影片連結放第二個，引導觀看
+- 標籤用群組常見詞
