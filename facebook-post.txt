@@ -24,7 +24,7 @@ Nest 就是解決這個問題的 Claude Code Skill：
 
 這東西有參加 WASC 世界 AI 技能錦標賽（六月主題：自成長·越用越懂你）。
 如果你試了覺得好用，拜託去幫我投個票 🙏
-👉 https://www.wascskills.com/gallery.html
+👉 https://www.wascskills.com/main/competition/5/detail/4/0?type=7
 搜尋「Nest」按 Vote，只要輸入 email 收個驗證碼，點了就好。
 
 👉 GitHub: https://github.com/MeowMeow1230/wasc-memory-skill
@@ -61,7 +61,7 @@ was basically built with Claude Code itself 😄
 
 This is my entry for the WASC World AI Skills Championship (June: Self-Growing).
 If you try it and find it useful, I'd love your vote 🙏
-👉 https://www.wascskills.com/gallery.html
+👉 https://www.wascskills.com/main/competition/5/detail/4/0?type=7
 Search "Nest", click Vote. Just enter your email for a verification code. One click after that.
 
 👉 GitHub: https://github.com/MeowMeow1230/wasc-memory-skill
